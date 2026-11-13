@@ -1,0 +1,118 @@
+# DRAF USULAN dari tim frontend untuk ISSUE-30 (#56) · belum diimplementasikan backend.
+# Setelah disetujui, pindahkan ke backend/api/openapi.yaml dan hapus file ini.
+#
+# Kebutuhan: layar Beranda dan Profil Saya di mobile menampilkan full_name, position, dan
+# tenant.name pengguna yang sedang login (FR-03). Saat ini backend hanya punya GET /v1/me
+# yang membalas id, tenant_id, dan role dari klaim JWT.
+#
+# Catatan desain:
+# - Nama field mengikuti kolom database (users.full_name) dan bunyi ticket.
+# - position, department, dan tenant berupa objek {id, name} agar ID tetap tersedia untuk
+#   layar lain, sementara nama siap ditampilkan tanpa request tambahan.
+# - Field opsional boleh null bila datanya belum diisi HRD.
+openapi: 3.0.3
+info:
+  title: On-Track API · draf GET /auth/me
+  version: 0.1.0-draft
+paths:
+  /auth/me:
+    get:
+      summary: Profil pengguna yang sedang login
+      description: Mengembalikan data pengguna dari token akses (Bearer), termasuk nama jabatan, departemen, dan tenant.
+      operationId: getAuthMe
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd, team_lead, employee, cashier]
+      responses:
+        "200":
+          description: Profil pengguna aktif
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMeResponse"
+        "401":
+          description: Token tidak ada, tidak valid, atau kedaluwarsa
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    NamedRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    AuthMeResponse:
+      type: object
+      required: [id, email, full_name, role, tenant]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+          example: employee@ontrack.id
+        full_name:
+          type: string
+          example: Employee OnTrack
+        role:
+          type: string
+          enum: [super_admin, owner, hrd, team_lead, employee, cashier]
+        phone:
+          type: string
+          nullable: true
+        employment_type:
+          type: string
+          enum: [tetap, kontrak, magang]
+          nullable: true
+        joined_at:
+          type: string
+          format: date
+          nullable: true
+        position:
+          allOf:
+            - $ref: "#/components/schemas/NamedRef"
+          nullable: true
+          example: { id: c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33, name: Staff }
+        department:
+          allOf:
+            - $ref: "#/components/schemas/NamedRef"
+          nullable: true
+          example: { id: b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22, name: Human Resources }
+        tenant:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: PT OnTrack Indonesia
+            timezone:
+              type: string
+              description: Zona waktu IANA untuk menampilkan jam (contoh Asia/Makassar)
+              example: Asia/Makassar
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string

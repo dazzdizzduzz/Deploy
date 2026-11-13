@@ -1,0 +1,66 @@
+.layout {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  background: var(--color-bg-canvas);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  padding: var(--space-12) var(--space-32);
+  border-bottom: 1px solid var(--color-border-default);
+  background: var(--color-bg-surface);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font: var(--type-heading-h2-font);
+  letter-spacing: var(--type-heading-h2-tracking);
+}
+
+.logout {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--size-icon-target);
+  padding: 0 var(--space-12);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: var(--type-label-m-font);
+  letter-spacing: var(--type-label-m-tracking);
+}
+
+.logout:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.logout:focus-visible {
+  outline: 2px solid var(--color-text-primary);
+  outline-offset: 2px;
+}
+
+.logout:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    padding-inline: var(--space-16);
+  }
+}
+
+/* Halaman sementara memakai .home (min-height 100dvh); di bawah bar cukup mengisi sisa tinggi. */
+.layout :global(.home) {
+  min-height: 0;
+  flex: 1;
+}

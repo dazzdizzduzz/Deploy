@@ -1,0 +1,220 @@
+# DRAF USULAN dari tim frontend untuk ISSUE-44-FE · belum diimplementasikan backend.
+# api/openapi-phase1.yaml baru punya endpoint izin milik karyawan sendiri (/me/leave-requests).
+# Halaman Persetujuan Izin untuk HRD/Team Lead/Owner butuh daftar, detail, setujui, dan tolak.
+# Polanya mengikuti /overtime-requests (F04). Setelah disetujui (ISSUE-69-BE), pindahkan ke kontrak
+# utama dan hapus file ini. Skema LeaveRequest dasar ada di api/drafts/leave-requests.openapi.yaml.
+openapi: 3.0.3
+info:
+  title: On-Track API · draf persetujuan izin, sakit, dan cuti
+  version: 0.1.0-draft
+paths:
+  /leave-requests:
+    get:
+      summary: Daftar pengajuan izin untuk diproses atasan/HRD
+      description: |
+        Team Lead hanya menerima pengajuan anggota timnya (manager_id = dirinya).
+        Owner dan HRD menerima seluruh pengajuan di tenant. Diurutkan dari pengajuan terbaru.
+        `counts` menghitung jumlah per status dengan filter lain (jenis, departemen, q) tetap berlaku.
+      operationId: listLeaveRequests
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd, team_lead]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [menunggu, disetujui, ditolak]
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [cuti, izin, sakit]
+        - name: department_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: q
+          in: query
+          description: Cari nama karyawan
+          schema: { type: string, maxLength: 100 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Daftar pengajuan dan jumlah per status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta, counts]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LeaveApprovalItem'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+                  counts:
+                    type: object
+                    required: [menunggu, disetujui, ditolak]
+                    properties:
+                      menunggu: { type: integer }
+                      disetujui: { type: integer }
+                      ditolak: { type: integer }
+  /leave-requests/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Detail pengajuan beserta lampiran dan kuota karyawan
+      operationId: getLeaveRequest
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd, team_lead]
+      responses:
+        '200':
+          description: Detail pengajuan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalItem'
+        '404':
+          description: Tidak ditemukan atau di luar tim Team Lead
+  /leave-requests/{id}/approve:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Setujui pengajuan
+      description: Untuk cuti, kuota karyawan berkurang sebanyak working_days dalam transaksi yang sama.
+      operationId: approveLeaveRequest
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd, team_lead]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 200
+                  description: Catatan opsional untuk karyawan
+      responses:
+        '200':
+          description: Pengajuan disetujui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalItem'
+        '403':
+          description: Tidak boleh menyetujui pengajuan sendiri (code SELF_APPROVAL)
+        '409':
+          description: Pengajuan sudah diputuskan (code LEAVE_ALREADY_DECIDED)
+        '422':
+          description: Kuota cuti karyawan tidak cukup lagi (code LEAVE_QUOTA_EXCEEDED)
+  /leave-requests/{id}/reject:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Tolak pengajuan dengan alasan
+      operationId: rejectLeaveRequest
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd, team_lead]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        '200':
+          description: Pengajuan ditolak
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveApprovalItem'
+        '403':
+          description: Tidak boleh menolak pengajuan sendiri (code SELF_APPROVAL)
+        '409':
+          description: Pengajuan sudah diputuskan (code LEAVE_ALREADY_DECIDED)
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LeaveApprovalItem:
+      type: object
+      required: [id, type, status, start_date, end_date, working_days, reason, employee, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          type: string
+          enum: [cuti, izin, sakit]
+        status:
+          type: string
+          enum: [menunggu, disetujui, ditolak]
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        working_days: { type: integer }
+        reason: { type: string }
+        employee:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            department_name: { type: string, nullable: true }
+            position_name: { type: string, nullable: true }
+        leave_quota_remaining:
+          type: integer
+          nullable: true
+          description: Sisa kuota cuti karyawan saat ini (diisi untuk jenis cuti)
+        attachment:
+          nullable: true
+          type: object
+          properties:
+            file_name: { type: string }
+            content_type: { type: string, example: application/pdf }
+            download_url:
+              type: string
+              format: uri
+              description: URL bertanda tangan, berlaku singkat (misalnya 15 menit)
+        decided_by_name: { type: string, nullable: true }
+        decided_at: { type: string, format: date-time, nullable: true }
+        decision_note:
+          type: string
+          nullable: true
+          description: Alasan penolakan atau catatan persetujuan
+        created_at: { type: string, format: date-time }
+    PaginationMeta:
+      description: Sama dengan PaginationMeta di api/openapi-phase1.yaml
+      type: object
+      required: [page, per_page, total, total_pages]
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }

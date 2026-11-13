@@ -1,0 +1,227 @@
+# DRAF USULAN dari tim frontend untuk ISSUE-42 (#70) · belum diimplementasikan backend.
+# Path mengikuti api/openapi-phase1.yaml (GET /attendance/recap, POST /attendance/recap/exports,
+# GET /attendance/recap/exports/{id}), yang belum punya skema respons. Phase1 memakai `division`;
+# draf ini memakai `department_id` agar sama dengan /departments. Setelah disetujui, pindahkan ke
+# backend/api/openapi.yaml dan hapus file ini.
+openapi: 3.0.3
+info:
+  title: On-Track API · draf rekap kehadiran & ekspor PDF
+  version: 0.1.0-draft
+paths:
+  /attendance/recap:
+    get:
+      summary: Rekap kehadiran seluruh karyawan tenant per bulan (FR-11)
+      operationId: getAttendanceRecap
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd, team_lead]
+      parameters:
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+            example: "2026-11"
+        - name: department_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: today_status
+          in: query
+          description: Filter status hari ini (hanya berlaku untuk bulan berjalan)
+          schema:
+            type: string
+            enum: [hadir, terlambat, izin, alpha, belum]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Rekap per karyawan dan ringkasan tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceRecapResponse"
+        "400":
+          description: Parameter tidak valid
+        "403":
+          description: Peran tidak berwenang
+  /attendance/recap/exports:
+    post:
+      summary: Minta server membuat PDF rekap kehadiran
+      operationId: postAttendanceRecapExport
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [month]
+              properties:
+                month:
+                  type: string
+                  example: "2026-11"
+                department_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                include_daily:
+                  type: boolean
+                  default: true
+                  description: Sertakan tabel harian per karyawan
+                include_selfie:
+                  type: boolean
+                  default: false
+                  description: Sertakan foto selfie (dokumen jauh lebih besar)
+      responses:
+        "202":
+          description: Pembuatan PDF diproses di belakang
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecapExport"
+  /attendance/recap/exports/{id}:
+    get:
+      summary: Status pembuatan PDF dan tautan unduhan
+      operationId: getAttendanceRecapExport
+      security:
+        - BearerAuth: []
+      x-rbac: [super_admin, owner, hrd]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Status ekspor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecapExport"
+        "404":
+          description: Ekspor tidak ditemukan
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AttendanceRecapRow:
+      type: object
+      required: [user_id, name, hadir, terlambat, izin, cuti, sakit, alpha, total_work_minutes, overtime_minutes]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        department_name:
+          type: string
+          nullable: true
+        hadir:
+          type: integer
+          description: Hari hadir tepat waktu
+        terlambat:
+          type: integer
+        izin:
+          type: integer
+        cuti:
+          type: integer
+        sakit:
+          type: integer
+        alpha:
+          type: integer
+        total_work_minutes:
+          type: integer
+        overtime_minutes:
+          type: integer
+        today_status:
+          type: string
+          nullable: true
+          enum: [hadir, terlambat, izin, alpha, belum]
+          description: Hanya diisi untuk bulan berjalan
+    AttendanceRecapResponse:
+      type: object
+      required: [month, stats, data, meta]
+      properties:
+        month:
+          type: string
+          example: "2026-11"
+        data_until:
+          type: string
+          format: date
+          description: Tanggal terakhir yang dihitung (hari ini untuk bulan berjalan)
+        stats:
+          type: object
+          description: Jumlah hari seluruh karyawan sesuai filter departemen
+          required: [hadir, terlambat, izin, alpha, employees]
+          properties:
+            hadir:
+              type: integer
+            terlambat:
+              type: integer
+            izin:
+              type: integer
+              description: Izin + cuti + sakit
+            alpha:
+              type: integer
+            employees:
+              type: integer
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceRecapRow"
+        meta:
+          type: object
+          required: [page, per_page, total, total_pages]
+          properties:
+            page:
+              type: integer
+            per_page:
+              type: integer
+            total:
+              type: integer
+            total_pages:
+              type: integer
+    RecapExport:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [processing, ready, failed]
+        file_name:
+          type: string
+          nullable: true
+          example: rekap-kehadiran-2026-11.pdf
+        download_url:
+          type: string
+          nullable: true
+          description: Tautan unduhan sementara (presigned URL object storage)
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+          nullable: true

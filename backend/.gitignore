@@ -1,0 +1,15 @@
+# Build output
+/server
+tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Kredensial layanan eksternal Backend 2 (ISSUE-03): jangan pernah di-commit
+secrets/
+*firebase-adminsdk*.json
+fcm-credentials*.json
+service-account*.json
+

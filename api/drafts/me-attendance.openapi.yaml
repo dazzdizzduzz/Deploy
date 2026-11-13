@@ -1,0 +1,138 @@
+# DRAF USULAN dari tim frontend untuk ISSUE-41 (#69) · belum diimplementasikan backend.
+# Path mengikuti api/openapi-phase1.yaml (GET /me/attendance, GET /me/attendance/{date}), yang belum
+# punya skema respons. Setelah disetujui, pindahkan ke backend/api/openapi.yaml dan hapus file ini.
+#
+# Kebutuhan layar Riwayat Absensi (FR-10): daftar per hari dalam satu bulan dengan status
+# Hadir/Terlambat/Izin/Cuti/Sakit/Alpha, jam masuk-pulang, dan ringkasan bulan.
+openapi: 3.0.3
+info:
+  title: On-Track API · draf riwayat absensi pribadi
+  version: 0.1.0-draft
+paths:
+  /me/attendance:
+    get:
+      summary: Riwayat absensi bulanan pengguna yang login
+      description: |
+        Berisi setiap hari kerja dalam bulan itu sampai hari ini (hari mendatang tidak dikirim),
+        diurutkan dari tanggal terbaru. Tanggal dan status dihitung di zona waktu tenant.
+        Status izin/cuti/sakit diambil dari pengajuan izin yang disetujui (FR-12–FR-16).
+      operationId: getMyAttendance
+      security:
+        - BearerAuth: []
+      x-rbac: [owner, hrd, team_lead, employee, cashier]
+      parameters:
+        - name: month
+          in: query
+          required: true
+          description: Bulan dalam format YYYY-MM
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+            example: "2026-11"
+      responses:
+        "200":
+          description: Riwayat dan ringkasan bulan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyAttendanceResponse"
+        "400":
+          description: Format bulan tidak valid
+        "401":
+          description: Token tidak ada, tidak valid, atau kedaluwarsa
+  /me/attendance/{date}:
+    get:
+      summary: Detail absensi satu hari milik pengguna yang login
+      operationId: getMyAttendanceByDate
+      security:
+        - BearerAuth: []
+      x-rbac: [owner, hrd, team_lead, employee, cashier]
+      parameters:
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Detail hari itu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceDay"
+        "404":
+          description: Tidak ada data untuk tanggal itu
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AttendanceDay:
+      type: object
+      required: [date, status]
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-11-11"
+        status:
+          type: string
+          description: |
+            on_time = Hadir, late = Terlambat, izin/cuti/sakit dari pengajuan yang disetujui,
+            alpha = hari kerja tanpa absensi maupun izin, libur = bukan hari kerja.
+          enum: [on_time, late, izin, cuti, sakit, alpha, libur]
+        attendance:
+          description: Sama dengan AttendanceResponse di backend/api/openapi.yaml; null bila tidak absen.
+          type: object
+          nullable: true
+        office_location_name:
+          type: string
+          nullable: true
+          example: Kantor Pusat
+        leave:
+          type: object
+          nullable: true
+          description: Pengajuan izin/cuti/sakit yang disetujui untuk hari itu.
+          properties:
+            type:
+              type: string
+              enum: [izin, cuti, sakit]
+            reason:
+              type: string
+              nullable: true
+    MonthlyAttendanceResponse:
+      type: object
+      required: [month, days, summary]
+      properties:
+        month:
+          type: string
+          example: "2026-11"
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceDay"
+        summary:
+          type: object
+          required: [hadir, terlambat, izin, cuti, sakit, alpha, total_work_minutes, overtime_minutes]
+          properties:
+            hadir:
+              type: integer
+              description: Jumlah hari on_time
+            terlambat:
+              type: integer
+            izin:
+              type: integer
+            cuti:
+              type: integer
+            sakit:
+              type: integer
+            alpha:
+              type: integer
+            total_work_minutes:
+              type: integer
+              description: Jumlah menit dari clock-in sampai clock-out sepanjang bulan
+            overtime_minutes:
+              type: integer

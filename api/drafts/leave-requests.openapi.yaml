@@ -1,0 +1,240 @@
+# DRAF USULAN dari tim frontend untuk ISSUE-43-FE · belum diimplementasikan backend.
+# Path /me/leave-quota, /me/leave-requests, /me/leave-requests/{id}, dan /me/leave-requests/preview
+# sudah ada di api/openapi-phase1.yaml, tetapi belum punya skema respons. CreateLeaveRequest memakai
+# `attachment_url`, sedangkan endpoint untuk mengunggah berkasnya belum ada. Draf ini melengkapi keduanya.
+# Setelah disetujui (ISSUE-69-BE / ISSUE-70-BE), pindahkan ke kontrak utama dan hapus file ini.
+openapi: 3.0.3
+info:
+  title: On-Track API · draf pengajuan izin, sakit, dan cuti
+  version: 0.1.0-draft
+paths:
+  /me/leave-requests/attachments:
+    post:
+      summary: Unggah lampiran pengajuan (surat dokter)
+      description: |
+        Dipanggil sebelum POST /me/leave-requests. Nilai `attachment_url` di respons dikirim apa adanya
+        di body pengajuan. Berkas yang tidak dipakai dalam 24 jam boleh dihapus server.
+      operationId: uploadLeaveAttachment
+      security:
+        - BearerAuth: []
+      x-rbac: [owner, hrd, team_lead, employee, cashier]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: JPG, PNG, atau PDF, maksimal 5 MB
+      responses:
+        '201':
+          description: Berkas tersimpan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveAttachment'
+        '413':
+          description: Berkas lebih dari 5 MB (code ATTACHMENT_TOO_LARGE)
+        '415':
+          description: Format selain JPG, PNG, atau PDF (code ATTACHMENT_UNSUPPORTED)
+  /me/leave-quota:
+    get:
+      summary: Kuota cuti tahunan pengguna yang login
+      operationId: getMyLeaveQuota
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Kuota tahun berjalan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveQuota'
+  /me/leave-requests:
+    get:
+      summary: Daftar pengajuan milik pengguna yang login, terbaru lebih dulu
+      operationId: listMyLeaveRequests
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/LeaveStatus'
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Daftar pengajuan
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LeaveRequest'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Ajukan izin, cuti, atau sakit
+      description: Body mengikuti CreateLeaveRequest di api/openapi-phase1.yaml.
+      operationId: createMyLeaveRequest
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Pengajuan dibuat dengan status menunggu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequest'
+        '422':
+          description: |
+            problem+json dengan `code`: LEAVE_QUOTA_EXCEEDED, DOCTOR_NOTE_REQUIRED, OVERLAPPING_LEAVE,
+            INVALID_DATE_RANGE (tanggal selesai sebelum tanggal mulai atau rentang tanpa hari kerja).
+  /me/leave-requests/{id}:
+    get:
+      summary: Detail satu pengajuan
+      operationId: getMyLeaveRequest
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Detail pengajuan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequest'
+        '404':
+          description: Tidak ditemukan atau milik pengguna lain
+  /me/leave-requests/preview:
+    post:
+      summary: Hitung hari kerja dan cek kuota sebelum mengirim
+      operationId: previewMyLeaveRequest
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Hasil pratinjau
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeavePreview'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LeaveType:
+      type: string
+      enum: [cuti, izin, sakit]
+    LeaveStatus:
+      type: string
+      enum: [menunggu, disetujui, ditolak]
+    LeaveAttachment:
+      type: object
+      required: [attachment_url, file_name, content_type, size_bytes]
+      properties:
+        attachment_url:
+          type: string
+          description: Kunci objek di storage, bukan URL publik
+          example: leave-attachments/9b1f.../surat-dokter.pdf
+        file_name: { type: string, example: surat-dokter.pdf }
+        content_type: { type: string, example: application/pdf }
+        size_bytes: { type: integer, example: 482113 }
+    LeaveRequest:
+      type: object
+      required: [id, type, status, start_date, end_date, working_days, reason, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          $ref: '#/components/schemas/LeaveType'
+        status:
+          $ref: '#/components/schemas/LeaveStatus'
+        start_date: { type: string, format: date, example: '2026-11-16' }
+        end_date: { type: string, format: date, example: '2026-11-18' }
+        working_days:
+          type: integer
+          description: Jumlah hari kerja (Senin–Jumat) di rentang tanggal
+          example: 3
+        reason: { type: string, maxLength: 200 }
+        attachment:
+          nullable: true
+          type: object
+          properties:
+            file_name: { type: string }
+            download_url:
+              type: string
+              format: uri
+              description: URL bertanda tangan, berlaku singkat (misalnya 15 menit)
+        approver_name:
+          type: string
+          nullable: true
+          description: Atasan langsung atau HRD yang menerima pengajuan
+        decided_at: { type: string, format: date-time, nullable: true }
+        decision_note:
+          type: string
+          nullable: true
+          description: Alasan penolakan (wajib saat ditolak) atau catatan persetujuan
+        created_at: { type: string, format: date-time }
+    LeaveQuota:
+      type: object
+      required: [year, total_days, used_days, pending_days, remaining_days]
+      properties:
+        year: { type: integer, example: 2026 }
+        total_days: { type: integer, example: 12 }
+        used_days: { type: integer, example: 4 }
+        pending_days:
+          type: integer
+          description: Hari kerja dari pengajuan cuti yang masih menunggu
+          example: 2
+        remaining_days:
+          type: integer
+          description: total_days - used_days - pending_days
+          example: 6
+    LeavePreview:
+      type: object
+      required: [working_days, deducts_quota, quota_sufficient, doctor_note_required]
+      properties:
+        working_days: { type: integer, example: 3 }
+        deducts_quota:
+          type: boolean
+          description: true hanya untuk cuti
+        remaining_days_after:
+          type: integer
+          nullable: true
+          description: Sisa kuota setelah pengajuan ini (hanya untuk cuti)
+        quota_sufficient: { type: boolean }
+        doctor_note_required:
+          type: boolean
+          description: true untuk sakit lebih dari 1 hari kerja
+        overlapping:
+          type: boolean
+          description: true bila bertabrakan dengan pengajuan menunggu/disetujui
+    PaginationMeta:
+      description: Sama dengan PaginationMeta di api/openapi-phase1.yaml
+      type: object
+      required: [page, per_page, total, total_pages]
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }

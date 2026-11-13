@@ -1,0 +1,51 @@
+# DRAF USULAN dari tim frontend untuk ISSUE-39/40 (#67, #68) · belum diimplementasikan backend.
+# Setelah disetujui, pindahkan ke backend/api/openapi.yaml dan hapus file ini.
+#
+# Kebutuhan: saat aplikasi dibuka, Beranda perlu tahu apakah pengguna sudah clock-in/clock-out
+# hari ini untuk menampilkan tombol yang tepat (Clock In / Clock Out / ringkasan). Sekarang
+# aplikasi menyimpan hasil clock-in di perangkat, sehingga status hilang bila pindah HP atau
+# clock-in dari perangkat lain.
+openapi: 3.0.3
+info:
+  title: On-Track API · draf GET /attendances/today
+  version: 0.1.0-draft
+paths:
+  /attendances/today:
+    get:
+      summary: Presensi hari ini milik pengguna yang login
+      description: |
+        Tanggal kerja dihitung di zona waktu tenant, sama seperti clock-in. `tenant_id` dan
+        `user_id` dari klaim JWT.
+      operationId: getAttendanceToday
+      security:
+        - BearerAuth: []
+      x-rbac: [owner, hrd, team_lead, employee, cashier]
+      responses:
+        "200":
+          description: Presensi hari ini, atau `attendance` null bila belum clock-in
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [work_date, attendance]
+                properties:
+                  work_date:
+                    type: string
+                    format: date
+                    example: "2026-11-12"
+                  attendance:
+                    nullable: true
+                    allOf:
+                      - $ref: "#/components/schemas/AttendanceResponse"
+        "401":
+          description: Token tidak ada, tidak valid, atau kedaluwarsa
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AttendanceResponse:
+      description: Sama dengan AttendanceResponse di backend/api/openapi.yaml.
+      type: object
